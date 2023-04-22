@@ -50,27 +50,6 @@ namespace sn
         setPixelVertices(x, y, color);
     }
 
-    sf::Color VirtualScreen::getPixel(std::size_t x, std::size_t y) const
-    {
-        // Check if the coordinates are within the screen dimensions.
-        if (x >= m_screenSize.x || y >= m_screenSize.y)
-            return sf::Color::Transparent;
-
-        std::size_t index = (x * m_screenSize.y + y) * 6;
-        return m_vertices[index].color;
-    }
-
-    void VirtualScreen::clear(sf::Color color)
-    {
-        for (std::size_t x = 0; x < m_screenSize.x; ++x)
-        {
-            for (std::size_t y = 0; y < m_screenSize.y; ++y)
-            {
-                setPixelVertices(x, y, color);
-            }
-        }
-    }
-
     void VirtualScreen::draw(sf::RenderTarget& target, sf::RenderStates states) const
     {
         target.draw(m_vertices, states);
