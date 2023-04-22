@@ -5,17 +5,20 @@
 
 namespace sn
 {
+    // Constructor
     CPU::CPU(MainBus &mem) :
         m_pendingNMI(false),
         m_pendingIRQ(false),
         m_bus(mem)
     {}
 
+    // Reset CPU
     void CPU::reset()
     {
         reset(readAddress(ResetVector));
     }
 
+    // Reset CPU with start address
     void CPU::reset(Address start_addr)
     {
         m_skipCycles = m_cycles = 0;
@@ -23,9 +26,10 @@ namespace sn
         f_I = true;
         f_C = f_D = f_N = f_V = f_Z = false;
         r_PC = start_addr;
-        r_SP = 0xfd; //documented startup state
+        r_SP = 0xFD; // Documented startup state
     }
 
+    // Trigger an interrupt
     void CPU::interrupt(InterruptType type)
     {
         switch (type)
@@ -43,12 +47,13 @@ namespace sn
         }
     }
 
+    // Execute interrupt sequence
     void CPU::interruptSequence(InterruptType type)
     {
         if (f_I && type != NMI && type != BRK_)
             return;
 
-        if (type == BRK_) //Add one if BRK, a quirk of 6502
+        if (type == BRK_) // Add one if BRK, a quirk of 6502
             ++r_PC;
 
         pushStack(r_PC >> 8);
@@ -56,8 +61,8 @@ namespace sn
 
         Byte flags = f_N << 7 |
                      f_V << 6 |
-                       1 << 5 | //unused bit, supposed to be always 1
-          (type == BRK_) << 4 | //B flag set if BRK
+                       1 << 5 | // Unused bit, supposed to be always 1
+          (type == BRK_) << 4 | // B flag set if BRK
                      f_D << 3 |
                      f_I << 2 |
                      f_Z << 1 |
@@ -82,36 +87,42 @@ namespace sn
         m_skipCycles += 6;
     }
 
+    // Push a value onto the stack
     void CPU::pushStack(Byte value)
     {
         m_bus.write(0x100 | r_SP, value);
-        --r_SP; //Hardware stacks grow downward!
+        --r_SP; // Hardware stacks grow downward!
     }
 
+    // Pull a value from the stack
     Byte CPU::pullStack()
     {
         return m_bus.read(0x100 | ++r_SP);
     }
 
+    // Set Zero and Negative flags
     void CPU::setZN(Byte value)
     {
         f_Z = !value;
         f_N = value & 0x80;
     }
 
+    // Set page crossed flag
     void CPU::setPageCrossed(Address a, Address b, int inc)
     {
-        //Page is determined by the high byte
-        if ((a & 0xff00) != (b & 0xff00))
+        // Page is determined by the high byte
+        if ((a & 0xFF00) != (b & 0xFF00))
             m_skipCycles += inc;
     }
 
+    // Skip DMA cycles
     void CPU::skipDMACycles()
     {
-        m_skipCycles += 513; //256 read + 256 write + 1 dummy read
-        m_skipCycles += (m_cycles & 1); //+1 if on odd cycle
+        m_skipCycles += 513; // 256 read + 256 write + 1 dummy read
+        m_skipCycles += (m_cycles & 1); // +1 if on odd cycle
     }
 
+    // Execute a single CPU step
     void CPU::step()
     {
         ++m_cycles;
@@ -159,14 +170,12 @@ namespace sn
 
         auto CycleLength = OperationCycles[opcode];
 
-        //Using short-circuit evaluation, call the other function only if the first failed
-        //ExecuteImplied must be called first and ExecuteBranch must be before ExecuteType0
+        // Using short-circuit evaluation, call the other function only if the first failed
+        // ExecuteImplied must be called first and ExecuteBranch must be before ExecuteType0
         if (CycleLength && (executeImplied(opcode) || executeBranch(opcode) ||
                         executeType1(opcode) || executeType2(opcode) || executeType0(opcode)))
         {
             m_skipCycles += CycleLength;
-            //m_cycles %= 340; //compatibility with Nintendulator log
-            //m_skipCycles = 0; //for TESTING
         }
         else
         {
