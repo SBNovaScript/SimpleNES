@@ -3,42 +3,96 @@
 #include "Mapper.h"
 #include <fstream>
 #include <string>
+#include <array>
 
 namespace sn
 {
+    /**
+     * Default constructor for Cartridge class, initializes member variables.
+     */
     Cartridge::Cartridge() :
         m_nameTableMirroring(0),
         m_mapperNumber(0),
-        m_extendedRAM(false)
+        m_extendedRAM(false),
+        m_hasBattery(false)
     {
-
     }
-    const std::vector<Byte>& Cartridge::getROM()
+
+    /**
+     * Returns a reference to the PRG-ROM data.
+     */
+    const std::vector<Byte>& Cartridge::getROM() const
     {
         return m_PRG_ROM;
     }
 
-    const std::vector<Byte>& Cartridge::getVROM()
+    /**
+     * Returns a reference to the CHR-ROM data.
+     */
+    const std::vector<Byte>& Cartridge::getVROM() const
     {
         return m_CHR_ROM;
     }
 
-    Byte Cartridge::getMapper()
+    /**
+     * Returns the mapper number.
+     */
+    Byte Cartridge::getMapper() const
     {
         return m_mapperNumber;
     }
 
-    Byte Cartridge::getNameTableMirroring()
+    /**
+     * Returns the name table mirroring mode.
+     */
+    Byte Cartridge::getNameTableMirroring() const
     {
         return m_nameTableMirroring;
     }
 
-    bool Cartridge::hasExtendedRAM()
+    /**
+     * Returns whether the cartridge has battery-backed RAM.
+     */
+    bool Cartridge::hasBattery() const
     {
-        // Some ROMs don't have this set correctly, plus there's no particular reason to disable it.
-        return true;
+        return m_hasBattery;
     }
 
+    /**
+     * Read header values and set member variables accordingly.
+     * @param header: Array containing header values from the ROM file.
+     */
+    void Cartridge::readHeaderValues(const std::array<Byte, 0x10>& header)
+    {
+        // Set name table mirroring mode
+        if (header[6] & 0x8)
+        {
+            m_nameTableMirroring = NameTableMirroring::FourScreen;
+            LOG(Info) << "Name Table Mirroring: " << "FourScreen" << std::endl;
+        }
+        else
+        {
+            m_nameTableMirroring = header[6] & 0x1;
+            LOG(Info) << "Name Table Mirroring: " << (m_nameTableMirroring == 0 ? "Horizontal" : "Vertical") << std::endl;
+        }
+
+        // Set mapper number
+        m_mapperNumber = ((header[6] >> 4) & 0xf) | (header[7] & 0xf0);
+        LOG(Info) << "Mapper #: " << +m_mapperNumber << std::endl;
+
+        // Set extended RAM
+        m_extendedRAM = header[6] & 0x2;
+        LOG(Info) << "Extended (CPU) RAM: " << std::boolalpha << m_extendedRAM << std::endl;
+
+        // Set battery-backed RAM
+        m_hasBattery = header[6] & 0x2;
+        LOG(Info) << "Battery-backed RAM: " << std::boolalpha << m_hasBattery << std::endl;
+    }
+
+    /**
+     * Loads a ROM from a file at the given path.
+     * Returns true if successful, otherwise false.
+     */
     bool Cartridge::loadFromFile(std::string path)
     {
         std::ifstream romFile (path, std::ios_base::binary | std::ios_base::in);
@@ -48,17 +102,18 @@ namespace sn
             return false;
         }
 
-        std::vector<Byte> header;
+        std::array<Byte, 0x10> header;
         LOG(Info) << "Reading ROM from path: " << path << std::endl;
 
-        //Header
-        header.resize(0x10);
-        if (!romFile.read(reinterpret_cast<char*>(&header[0]), 0x10))
+        // Read the iNES header
+        if (!romFile.read(reinterpret_cast<char*>(header.data()), header.size()))
         {
             LOG(Error) << "Reading iNES header failed." << std::endl;
             return false;
         }
-        if (std::string{&header[0], &header[4]} != "NES\x1A")
+
+        // Check if the file is a valid iNES image
+        if (std::string{header.begin(), header.begin() + 4} != "NES\x1A")
         {
             LOG(Error) << "Not a valid iNES image. Magic number: "
                       << std::hex << header[0] << " "
@@ -67,7 +122,9 @@ namespace sn
             return false;
         }
 
+        // Read the header values
         LOG(Info) << "Reading header, it dictates: \n";
+        readHeaderValues(header);
 
         Byte banks = header[4];
         LOG(Info) << "16KB PRG-ROM Banks: " << +banks << std::endl;
@@ -80,23 +137,7 @@ namespace sn
         Byte vbanks = header[5];
         LOG(Info) << "8KB CHR-ROM Banks: " << +vbanks << std::endl;
 
-        if (header[6] & 0x8)
-        {
-            m_nameTableMirroring = NameTableMirroring::FourScreen;
-            LOG(Info) << "Name Table Mirroring: " << "FourScreen" << std::endl;
-        }
-        else
-        {
-            m_nameTableMirroring = header[6] & 0x1;
-            LOG(Info) << "Name Table Mirroring: " << (m_nameTableMirroring == 0 ? "Horizontal" : "Vertical") << std::endl;
-        }
-
-        m_mapperNumber = ((header[6] >> 4) & 0xf) | (header[7] & 0xf0);
-        LOG(Info) << "Mapper #: " << +m_mapperNumber << std::endl;
-
-        m_extendedRAM = header[6] & 0x2;
-        LOG(Info) << "Extended (CPU) RAM: " << std::boolalpha << m_extendedRAM << std::endl;
-
+        // Check for unsupported features
         if (header[6] & 0x4)
         {
             LOG(Error) << "Trainer is not supported." << std::endl;
@@ -111,7 +152,7 @@ namespace sn
         else
             LOG(Info) << "ROM is NTSC compatible.\n";
 
-        //PRG-ROM 16KB banks
+        // Read PRG-ROM 16KB banks
         m_PRG_ROM.resize(0x4000 * banks);
         if (!romFile.read(reinterpret_cast<char*>(&m_PRG_ROM[0]), 0x4000 * banks))
         {
@@ -119,7 +160,7 @@ namespace sn
             return false;
         }
 
-        //CHR-ROM 8KB banks
+        // Read CHR-ROM 8KB banks
         if (vbanks)
         {
             m_CHR_ROM.resize(0x2000 * vbanks);
