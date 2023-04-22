@@ -3,95 +3,115 @@
 
 namespace sn
 {
+    // Constants for readability
+    enum : Address {
+        CHR_ROM_BEGIN = 0x0000,
+        CHR_ROM_END = 0x1FFF,
+        NAME_TABLES_BEGIN = 0x2000,
+        NAME_TABLES_END = 0x3EFF,
+        PALETTE_BEGIN = 0x3F00,
+        PALETTE_END = 0x3FFF,
+        NAME_TABLE_MIRROR_OFFSET = 0x1000
+    };
 
+    /**
+     * Constructor for PictureBus
+     */
     PictureBus::PictureBus() :
         m_palette(0x20),
         m_RAM(0x800),
         m_mapper(nullptr)
     {}
 
-    Byte PictureBus::read(Address addr)
+    /**
+     * Destructor for PictureBus
+     */
+    PictureBus::~PictureBus() {
+        m_mapper = nullptr;
+    }
+
+    /**
+     * Read data from PictureBus memory
+     * @param addr Address to read from
+     * @return Byte value at the given address
+     */
+    Byte PictureBus::read(Address addr) const
     {
-        if (addr < 0x2000)
+        if (addr <= CHR_ROM_END)
         {
             return m_mapper->readCHR(addr);
         }
-        else if (addr < 0x3eff)
+        else if (addr <= NAME_TABLES_END)
         {
             const auto index = addr & 0x3ff;
-            // Name tables upto 0x3000, then mirrored upto 3eff
-            auto normalizedAddr = addr;
-            if (addr >= 0x3000)
-            {
-                normalizedAddr -= 0x1000;
-            }
+            // Name tables up to 0x3000, then mirrored up to 0x3eff
+            auto normalizedAddr = (addr >= 0x3000) ? addr - NAME_TABLE_MIRROR_OFFSET : addr;
 
             if (NameTable0 >= m_RAM.size())
                 return m_mapper->readCHR(normalizedAddr);
-            else if (normalizedAddr < 0x2400)      //NT0
+            else if (normalizedAddr < 0x2400)
                 return m_RAM[NameTable0 + index];
-            else if (normalizedAddr < 0x2800) //NT1
+            else if (normalizedAddr < 0x2800)
                 return m_RAM[NameTable1 + index];
-            else if (normalizedAddr < 0x2c00) //NT2
+            else if (normalizedAddr < 0x2c00)
                 return m_RAM[NameTable2 + index];
-            else /* if (normalizedAddr < 0x3000)*/ //NT3
+            else
                 return m_RAM[NameTable3 + index];
         }
-        else if (addr < 0x3fff)
+        else if (addr <= PALETTE_END)
         {
             auto paletteAddr = addr & 0x1f;
-            return readPalette(paletteAddr);
+            // Addresses $3F10/$3F14/$3F18/$3F1C are mirrors of $3F00/$3F04/$3F08/$3F0C
+            if (paletteAddr >= 0x10 && paletteAddr % 4 == 0) {
+                paletteAddr &= 0xf;
+            }
+            return m_palette[paletteAddr];
         }
         return 0;
     }
 
-    Byte PictureBus::readPalette(Byte paletteAddr)
-    {
-        // Addresses $3F10/$3F14/$3F18/$3F1C are mirrors of $3F00/$3F04/$3F08/$3F0C
-        if (paletteAddr >= 0x10 && paletteAddr % 4 == 0) {
-            paletteAddr = paletteAddr & 0xf;
-        }
-        return m_palette[paletteAddr];
-    }
-
+    /**
+     * Write data to PictureBus memory
+     * @param addr Address to write to
+     * @param value Byte value to write
+     */
     void PictureBus::write(Address addr, Byte value)
     {
-        if (addr < 0x2000)
+        if (addr <= CHR_ROM_END)
         {
             m_mapper->writeCHR(addr, value);
         }
-        else if (addr < 0x3eff)
+        else if (addr <= NAME_TABLES_END)
         {
             const auto index = addr & 0x3ff;
-            // Name tables upto 0x3000, then mirrored upto 3eff
-            auto normalizedAddr = addr;
-            if (addr >= 0x3000)
-            {
-                normalizedAddr -= 0x1000;
-            }
+            // Name tables up to 0x3000, then mirrored up to 0x3eff
+            auto normalizedAddr = (addr >= 0x3000) ? addr - NAME_TABLE_MIRROR_OFFSET : addr;
 
             if (NameTable0 >= m_RAM.size())
                 m_mapper->writeCHR(normalizedAddr, value);
-            else if (normalizedAddr < 0x2400)      //NT0
+            else if (normalizedAddr < 0x2400)
                 m_RAM[NameTable0 + index] = value;
-            else if (normalizedAddr < 0x2800) //NT1
+            else if (normalizedAddr < 0x2800)
                 m_RAM[NameTable1 + index] = value;
-            else if (normalizedAddr < 0x2c00) //NT2
+            else if (normalizedAddr < 0x2c00)
                 m_RAM[NameTable2 + index] = value;
-            else                    //NT3
+            else
                 m_RAM[NameTable3 + index] = value;
         }
-        else if (addr < 0x3fff)
+        else if (addr <= PALETTE_END)
         {
             auto palette = addr & 0x1f;
             // Addresses $3F10/$3F14/$3F18/$3F1C are mirrors of $3F00/$3F04/$3F08/$3F0C
             if (palette >= 0x10 && addr % 4 == 0) {
-                palette = palette & 0xf;
+                palette &= 0xf;
             }
             m_palette[palette] = value;
-       }
+        }
     }
 
+    /**
+     * Update nametable mirroring, based on the mapper configuration
+     */
     void PictureBus::updateMirroring()
     {
         switch (m_mapper->getNameTableMirroring())
@@ -99,24 +119,19 @@ namespace sn
             case Horizontal:
                 NameTable0 = NameTable1 = 0;
                 NameTable2 = NameTable3 = 0x400;
-                LOG(InfoVerbose) << "Horizontal Name Table mirroring set. (Vertical Scrolling)" << std::endl;
                 break;
             case Vertical:
                 NameTable0 = NameTable2 = 0;
                 NameTable1 = NameTable3 = 0x400;
-                LOG(InfoVerbose) << "Vertical Name Table mirroring set. (Horizontal Scrolling)" << std::endl;
                 break;
             case OneScreenLower:
                 NameTable0 = NameTable1 = NameTable2 = NameTable3 = 0;
-                LOG(InfoVerbose) << "Single Screen mirroring set with lower bank." << std::endl;
                 break;
             case OneScreenHigher:
                 NameTable0 = NameTable1 = NameTable2 = NameTable3 = 0x400;
-                LOG(InfoVerbose) << "Single Screen mirroring set with higher bank." << std::endl;
                 break;
             case FourScreen:
                 NameTable0 = m_RAM.size();
-                LOG(InfoVerbose) << "FourScreen mirroring." << std::endl;
                 break;
             default:
                 NameTable0 = NameTable1 = NameTable2 = NameTable3 = 0;
@@ -124,6 +139,11 @@ namespace sn
         }
     }
 
+    /**
+     * Set the mapper for the PictureBus
+     * @param mapper Pointer to the Mapper object
+     * @return True if the mapper is set successfully, False otherwise
+     */
     bool PictureBus::setMapper(Mapper *mapper)
     {
         if (!mapper)
@@ -137,6 +157,9 @@ namespace sn
         return true;
     }
 
+    /**
+     * Trigger a scanline IRQ event
+     */
     void PictureBus::scanlineIRQ(){
         m_mapper->scanlineIRQ();
     }
