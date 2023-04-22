@@ -9,25 +9,16 @@
 
 namespace sn
 {
-    // trim from start (construct new string)
-    inline std::string ltrim(const std::string &str)
+    // Trim from both start and end (construct new string)
+    inline std::string trim(const std::string &str)
     {
         std::string s(str);
-        s.erase(s.begin(), std::find_if_not<decltype(s.begin()), int(int)>(s.begin(), s.end(),
-                std::isspace));
+        s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](unsigned char ch) { return !std::isspace(ch); }));
+        s.erase(std::find_if(s.rbegin(), s.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base(), s.end());
         return s;
     }
 
-    // trim from end (construct new string)
-    inline std::string rtrim(const std::string &str)
-    {
-        std::string s(str);
-        s.erase(std::find_if_not<decltype(s.rbegin()), int(int)>(s.rbegin(), s.rend(),
-                std::isspace).base(), s.end());
-        return s;
-    }
-
-    void parseControllerConf(std::string filepath,
+    void parseControllerConf(const std::string& filepath,
                             std::vector<sf::Keyboard::Key>& p1,
                             std::vector<sf::Keyboard::Key>& p2)
     {
@@ -141,44 +132,43 @@ namespace sn
                                     "F15",
                                     "Pause"
                                 };
-
-        std::ifstream file(filepath);
+std::ifstream file(filepath);
         std::string line;
-        enum { Player1, Player2, None } state;
+        enum { Player1, Player2, None } state = None;
         unsigned int line_no = 0;
         while (std::getline(file, line))
         {
-            line = rtrim(ltrim(line));
-            if (line[0] == '#' || line.empty())
+            line = trim(line);
+            if (line.empty() || line[0] == '#')
                 continue;
-            else if (line == "[Player1]")
-            {
+
+            if (line == "[Player1]")
                 state = Player1;
-            }
             else if (line == "[Player2]")
-            {
                 state = Player2;
-            }
             else if (state == Player1 || state == Player2)
             {
                 auto divider = line.find("=");
-                auto it  = std::find(std::begin(buttonStrings), std::end(buttonStrings), ltrim(rtrim(line.substr(0, divider)))),
-                    it2 = std::find(std::begin(keys), std::end(keys), ltrim(rtrim(line.substr(divider + 1))));
-                if (it == std::end(buttonStrings) || it2 == std::end(keys))
+                auto button = trim(line.substr(0, divider));
+                auto key = trim(line.substr(divider + 1));
+
+                auto buttonIt = std::find(std::begin(buttonStrings), std::end(buttonStrings), button);
+                auto keyIt = std::find(std::begin(keys), std::end(keys), key);
+
+                if (buttonIt == std::end(buttonStrings) || keyIt == std::end(keys))
                 {
                     LOG(Error) << "Invalid key in configuration file at Line " << line_no << std::endl;
                     continue;
                 }
-                auto i = std::distance(std::begin(buttonStrings), it);
-                auto key = std::distance(std::begin(keys), it2);
-                (state == Player1 ? p1 : p2)[i] = static_cast<sf::Keyboard::Key>(key);
+
+                auto i = std::distance(std::begin(buttonStrings), buttonIt);
+                auto keyIndex = std::distance(std::begin(keys), keyIt);
+                (state == Player1 ? p1 : p2)[i] = static_cast<sf::Keyboard::Key>(keyIndex);
             }
             else
                 LOG(Error) << "Invalid line in key configuration at Line " << line_no << std::endl;
 
             ++line_no;
         }
-
     }
 }
-
